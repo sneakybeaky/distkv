@@ -14,9 +14,8 @@ var (
 )
 
 func TestStoreAppendRead(t *testing.T) {
-	f, err := ioutil.TempFile("", "store_append_read_test")
+	f, err := ioutil.TempFile(t.TempDir(), "store_append_read_test")
 	require.NoError(t, err)
-	defer os.Remove(f.Name())
 
 	s, err := newStore(f)
 	require.NoError(t, err)
@@ -30,9 +29,6 @@ func TestStoreAppendRead(t *testing.T) {
 	testRead(t, s)
 }
 
-// END: intro
-
-// START: end
 func testAppend(t *testing.T, s *store) {
 	t.Helper()
 	for i := uint64(1); i < 4; i++ {
@@ -72,13 +68,10 @@ func testReadAt(t *testing.T, s *store) {
 	}
 }
 
-// END: end
-
-// START: close
 func TestStoreClose(t *testing.T) {
-	f, err := ioutil.TempFile("", "store_close_test")
+	f, err := ioutil.TempFile(t.TempDir(), "store_close_test")
 	require.NoError(t, err)
-	defer os.Remove(f.Name())
+
 	s, err := newStore(f)
 	require.NoError(t, err)
 	_, _, err = s.Append(write)
@@ -109,5 +102,3 @@ func openFile(name string) (file *os.File, size int64, err error) {
 	}
 	return f, fi.Size(), nil
 }
-
-// END: close
