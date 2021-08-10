@@ -1,4 +1,4 @@
-package distkv
+package log
 
 import (
 	"io"
