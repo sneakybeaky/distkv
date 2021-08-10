@@ -5,22 +5,29 @@ import (
 	"io/ioutil"
 	"os"
 	"testing"
-
-	"github.com/stretchr/testify/require"
 )
 
 func TestIndex(t *testing.T) {
 
 	f, err := ioutil.TempFile(t.TempDir(), "index_test")
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	c := Config{}
 	c.Segment.MaxIndexBytes = 1024
 	idx, err := newIndex(f, c)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatal(err)
+	}
 	_, _, err = idx.Read(-1)
-	require.Error(t, err)
-	require.Equal(t, f.Name(), idx.Name())
+	if err == nil {
+		t.Fatal("Reading a negative position should return an error")
+	}
+
+	if f.Name() != idx.Name() {
+		t.Fatalf("%s should be the same as %s", f.Name(), idx.Name())
+	}
 
 	entries := []struct {
 		Off uint32
@@ -32,24 +39,47 @@ func TestIndex(t *testing.T) {
 
 	for _, want := range entries {
 		err = idx.Write(want.Off, want.Pos)
-		require.NoError(t, err)
+		if err != nil {
+			t.Fatal(err)
+		}
 
 		_, pos, err := idx.Read(int64(want.Off))
-		require.NoError(t, err)
-		require.Equal(t, want.Pos, pos)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if want.Pos != pos {
+			t.Errorf("wanted %d got %d", want.Pos, pos)
+		}
+
 	}
 
 	// index and scanner should error when reading past existing entries
 	_, _, err = idx.Read(int64(len(entries)))
-	require.Equal(t, io.EOF, err)
+
+	if err != io.EOF {
+		t.Errorf("wanted EOF got %v", err)
+	}
+
 	_ = idx.Close()
 
 	// index should build its state from the existing file
 	f, _ = os.OpenFile(f.Name(), os.O_RDWR, 0600)
 	idx, err = newIndex(f, c)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	off, pos, err := idx.Read(-1)
-	require.NoError(t, err)
-	require.Equal(t, uint32(1), off)
-	require.Equal(t, entries[1].Pos, pos)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if off != uint32(1) {
+		t.Errorf("offset should be 1, but got %d", off)
+	}
+
+	if entries[1].Pos != pos {
+		t.Errorf("wanted %d got %d", entries[1].Pos, pos)
+	}
 }
