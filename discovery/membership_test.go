@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/serf/serf"
-	. "github.com/sneakybeaky/distkv/discovery"
+	"github.com/sneakybeaky/distkv/discovery"
 	"github.com/stretchr/testify/require"
 	"github.com/travisjeffery/go-dynaport"
 )
@@ -35,8 +35,8 @@ func TestMembership(t *testing.T) {
 	require.Equal(t, fmt.Sprintf("%d", 2), <-handler.leaves)
 }
 
-func setupMember(t *testing.T, members []*Membership) (
-	[]*Membership, *handler,
+func setupMember(t *testing.T, members []*discovery.Membership) (
+	[]*discovery.Membership, *handler,
 ) {
 	id := len(members)
 	ports := dynaport.Get(1)
@@ -44,7 +44,7 @@ func setupMember(t *testing.T, members []*Membership) (
 	tags := map[string]string{
 		"rpc_addr": addr,
 	}
-	c := Config{
+	c := discovery.Config{
 		NodeName: fmt.Sprintf("%d", id),
 		BindAddr: addr,
 		Tags:     tags,
@@ -58,7 +58,7 @@ func setupMember(t *testing.T, members []*Membership) (
 			members[0].BindAddr,
 		}
 	}
-	m, err := New(h, c)
+	m, err := discovery.New(h, c)
 	require.NoError(t, err)
 	members = append(members, m)
 	return members, h
