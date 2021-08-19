@@ -3,9 +3,12 @@ package discovery_test
 
 import (
 	"fmt"
+	"log"
+	"os"
 	"testing"
 	"time"
 
+	"github.com/go-logr/stdr"
 	"github.com/hashicorp/serf/serf"
 	"github.com/sneakybeaky/distkv/discovery"
 	"github.com/stretchr/testify/require"
@@ -58,7 +61,9 @@ func setupMember(t *testing.T, members []*discovery.Membership) (
 			members[0].BindAddr,
 		}
 	}
-	m, err := discovery.New(h, c)
+	logger := stdr.NewWithOptions(log.New(os.Stderr, "", log.LstdFlags), stdr.Options{LogCaller: stdr.All})
+	logger = logger.WithName(t.Name())
+	m, err := discovery.New(h, c, logger)
 	require.NoError(t, err)
 	members = append(members, m)
 	return members, h

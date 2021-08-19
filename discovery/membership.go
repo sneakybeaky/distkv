@@ -1,8 +1,8 @@
 package discovery
 
 import (
+	"github.com/go-logr/logr"
 	"github.com/hashicorp/serf/serf"
-	"go.uber.org/zap"
 	"net"
 )
 
@@ -11,14 +11,14 @@ type Membership struct {
 	handler Handler
 	serf    *serf.Serf
 	events  chan serf.Event
-	logger  *zap.Logger
+	log     logr.Logger
 }
 
-func New(handler Handler, config Config) (*Membership, error) {
+func New(handler Handler, config Config, log logr.Logger) (*Membership, error) {
 	c := &Membership{
 		Config:  config,
 		handler: handler,
-		logger:  zap.L().Named("membership"),
+		log:     log,
 	}
 	if err := c.setupSerf(); err != nil {
 		return nil, err
@@ -116,10 +116,8 @@ func (m *Membership) Leave() error {
 }
 
 func (m *Membership) logError(err error, msg string, member serf.Member) {
-	m.logger.Error(
+	m.log.Error(err,
 		msg,
-		zap.Error(err),
-		zap.String("name", member.Name),
-		zap.String("rpc_addr", member.Tags["rpc_addr"]),
-	)
+		"memberName", member.Name,
+		"rpc_addr", member.Tags["rpc_addr"])
 }
