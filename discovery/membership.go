@@ -11,14 +11,14 @@ type Membership struct {
 	handler Handler
 	serf    *serf.Serf
 	events  chan serf.Event
-	log     logr.Logger
+	logger  logr.Logger
 }
 
 func New(handler Handler, config Config, log logr.Logger) (*Membership, error) {
 	c := &Membership{
 		Config:  config,
 		handler: handler,
-		log:     log,
+		logger:  log,
 	}
 	if err := c.setupSerf(); err != nil {
 		return nil, err
@@ -116,7 +116,7 @@ func (m *Membership) Leave() error {
 }
 
 func (m *Membership) logError(err error, msg string, member serf.Member) {
-	m.log.Error(err,
+	m.logger.Error(err,
 		msg,
 		"memberName", member.Name,
 		"rpc_addr", member.Tags["rpc_addr"])
