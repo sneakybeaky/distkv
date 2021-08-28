@@ -2,6 +2,7 @@ package discovery
 
 import (
 	"github.com/go-logr/logr"
+	"github.com/hashicorp/raft"
 	"github.com/hashicorp/serf/serf"
 	"net"
 )
@@ -116,7 +117,11 @@ func (m *Membership) Leave() error {
 }
 
 func (m *Membership) logError(err error, msg string, member serf.Member) {
-	m.logger.Error(err,
+	log := m.logger.Error
+	if err == raft.ErrNotLeader {
+		log = m.logger.V(1).Error
+	}
+	log(err,
 		msg,
 		"memberName", member.Name,
 		"rpc_addr", member.Tags["rpc_addr"])
