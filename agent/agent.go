@@ -115,7 +115,8 @@ func (a *Agent) setupLog() error {
 func (a *Agent) setupServer() error {
 
 	serverConfig := &server.Config{
-		CommitLog: a.log,
+		CommitLog:   a.log,
+		GetServerer: a.log,
 	}
 
 	var err error
