@@ -1,16 +1,20 @@
 package agent
 
 import (
+	"bytes"
 	"fmt"
 	"github.com/go-logr/stdr"
+	"github.com/hashicorp/raft"
+	"io"
 	"net"
 	"os"
 	"sync"
+	"time"
 
-	api "github.com/sneakybeaky/distkv/api/v1"
 	"github.com/sneakybeaky/distkv/discovery"
 	wal "github.com/sneakybeaky/distkv/log"
 	"github.com/sneakybeaky/distkv/server"
+	"github.com/soheilhy/cmux"
 	"google.golang.org/grpc"
 	"log"
 )
@@ -18,10 +22,10 @@ import (
 type Agent struct {
 	Config
 
-	log        *wal.Log
+	mux        cmux.CMux
+	log        *wal.DistributedLog
 	server     *grpc.Server
 	membership *discovery.Membership
-	replicator *wal.Replicator
 
 	shutdown     bool
 	shutdowns    chan struct{}
@@ -29,6 +33,7 @@ type Agent struct {
 }
 
 type Config struct {
+	Bootstrap      bool
 	DataDir        string
 	BindAddr       string
 	RPCPort        int
@@ -50,6 +55,7 @@ func New(config Config) (*Agent, error) {
 		shutdowns: make(chan struct{}),
 	}
 	setup := []func() error{
+		a.setupMux,
 		a.setupLog,
 		a.setupServer,
 		a.setupMembership,
@@ -59,15 +65,50 @@ func New(config Config) (*Agent, error) {
 			return nil, err
 		}
 	}
+	go a.serve()
 	return a, nil
 }
 
+func (a *Agent) setupMux() error {
+	rpcAddr := fmt.Sprintf(":%d", a.Config.RPCPort)
+
+	ln, err := net.Listen("tcp", rpcAddr)
+	if err != nil {
+		return err
+	}
+	a.mux = cmux.New(ln)
+	return nil
+}
+
 func (a *Agent) setupLog() error {
+
+	raftLn := a.mux.Match(func(reader io.Reader) bool {
+		b := make([]byte, 1)
+		if _, err := reader.Read(b); err != nil {
+			return false
+		}
+
+		return bytes.Compare(b, []byte{byte(wal.RaftRPC)}) == 0
+	})
+
+	logConfig := wal.Config{}
+	logConfig.Raft.StreamLayer = wal.NewStreamLayer(
+		raftLn,
+		nil,
+		nil)
+	logConfig.Raft.LocalID = raft.ServerID(a.Config.NodeName)
+	logConfig.Raft.Bootstrap = a.Config.Bootstrap
+
 	var err error
-	a.log, err = wal.NewLog(
-		a.Config.DataDir,
-		wal.Config{},
-	)
+	a.log, err = wal.NewDistributedLog(a.Config.DataDir, logConfig)
+
+	if err != nil {
+		return err
+	}
+
+	if a.Config.Bootstrap {
+		err = a.log.WaitForLeader(3 * time.Second)
+	}
 	return err
 }
 
@@ -82,20 +123,14 @@ func (a *Agent) setupServer() error {
 	if err != nil {
 		return err
 	}
-	rpcAddr, err := a.RPCAddr()
-	if err != nil {
-		return err
-	}
-	ln, err := net.Listen("tcp", rpcAddr)
-	if err != nil {
-		return err
-	}
+	grpcLn := a.mux.Match(cmux.Any())
 	go func() {
-		if err := a.server.Serve(ln); err != nil {
+		if err := a.server.Serve(grpcLn); err != nil {
 			_ = a.Shutdown()
 		}
 	}()
 	return err
+
 }
 
 func (a *Agent) setupMembership() error {
@@ -103,27 +138,16 @@ func (a *Agent) setupMembership() error {
 	if err != nil {
 		return err
 	}
-	var opts []grpc.DialOption
 
-	opts = append(opts, grpc.WithInsecure())
-
-	conn, err := grpc.Dial(rpcAddr, opts...)
-	if err != nil {
-		return err
-	}
-	client := api.NewLogClient(conn)
-	a.replicator = &wal.Replicator{
-		DialOptions: opts,
-		LocalServer: client,
-	}
-	a.membership, err = discovery.New(a.replicator, discovery.Config{
-		NodeName: a.Config.NodeName,
-		BindAddr: a.Config.BindAddr,
-		Tags: map[string]string{
-			"rpc_addr": rpcAddr,
+	a.membership, err = discovery.New(a.log,
+		discovery.Config{
+			NodeName: a.Config.NodeName,
+			BindAddr: a.Config.BindAddr,
+			Tags: map[string]string{
+				"rpc_addr": rpcAddr,
+			},
+			StartJoinAddrs: a.Config.StartJoinAddrs,
 		},
-		StartJoinAddrs: a.Config.StartJoinAddrs,
-	},
 		stdr.NewWithOptions(log.New(os.Stderr, "", log.LstdFlags), stdr.Options{LogCaller: stdr.All}).WithName("discoverer"),
 	)
 	return err
@@ -140,7 +164,6 @@ func (a *Agent) Shutdown() error {
 
 	shutdown := []func() error{
 		a.membership.Leave,
-		a.replicator.Close,
 		func() error {
 			a.server.GracefulStop()
 			return nil
@@ -151,6 +174,15 @@ func (a *Agent) Shutdown() error {
 		if err := fn(); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func (a *Agent) serve() error {
+	err := a.mux.Serve()
+	if err != nil {
+		_ = a.Shutdown()
+		return err
 	}
 	return nil
 }
